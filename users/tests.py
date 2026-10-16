@@ -180,3 +180,53 @@ def test_user_cannot_change_staff_permission(api_client, user):
 
     user.refresh_from_db()
     assert user.is_staff is False
+
+@pytest.fixture
+def admin_user(db):
+    return User.objects.create_superuser(
+        email="admin@example.com",
+        password="AdminPassword123!",
+    )
+
+
+@pytest.mark.django_db
+def test_admin_can_access_user_list(client, admin_user):
+    client.force_login(admin_user)
+
+    url = reverse("admin:users_user_changelist")
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_regular_user_cannot_access_admin(client, user):
+    client.force_login(user)
+
+    url = reverse("admin:users_user_changelist")
+    response = client.get(url)
+
+    assert response.status_code == 302
+    assert "/admin/login/" in response.url
+
+
+@pytest.mark.django_db
+def test_admin_can_access_user_creation_form(client, admin_user):
+    client.force_login(admin_user)
+
+    url = reverse("admin:users_user_add")
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_admin_can_access_user_change_form(
+    client, admin_user, user
+):
+    client.force_login(admin_user)
+
+    url = reverse("admin:users_user_change", args=[user.pk])
+    response = client.get(url)
+
+    assert response.status_code == 200
