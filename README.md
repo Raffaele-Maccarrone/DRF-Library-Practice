@@ -19,26 +19,41 @@ This project is part of a Django REST Framework coding practice assignment.
 - pytest-cov
 - drf-spectacular (Swagger/OpenAPI)
 
+
 ## Features
 
 ### Implemented
 
+**Users Service**
 - Custom User model with email authentication
-- User registration
+- User registration and profile management
 - JWT authentication and token refresh
-- User profile retrieval and updates
 - Custom Django Admin integration
-- Automated tests
+
+**Books Service**
+- Book CRUD operations
+- Book inventory management
+- Hardcover and softcover support
+- Daily borrowing fee configuration
+- Book management through Django Admin
+- Admin-only API access (public read access planned for Task 2)
+
+**Development**
+- PostgreSQL database
+- Automated tests with Pytest
+- Code coverage with pytest-cov
 - OpenAPI documentation with Swagger UI
 
 ### Planned
 
-- Books inventory management
-- Book borrowing and returns
+- Public read access and admin-only write permissions for books
+- Book borrowing and return management
+- Borrowing filters
 - Telegram notifications
 - Stripe payment integration
 - Overdue fines
 - Docker Compose infrastructure
+
 
 ## Installation
 
@@ -114,6 +129,58 @@ http://127.0.0.1:8000/
 | PUT | `/users/me/` | Update user profile |
 | PATCH | `/users/me/` | Partially update profile |
 
+
+### Books
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/books/` | List all books |
+| POST | `/books/` | Create a book |
+| GET | `/books/{id}/` | Retrieve book details |
+| PUT | `/books/{id}/` | Update a book |
+| PATCH | `/books/{id}/` | Partially update a book |
+| DELETE | `/books/{id}/` | Delete a book |
+
+Currently, all Books endpoints require an authenticated
+staff user. Public read access will be implemented in Task 2.
+
+### Book Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | Integer | Auto-generated identifier |
+| title | String | Book title |
+| author | String | Book author |
+| cover | Enum | HARD or SOFT |
+| inventory | Integer | Available copies (>= 0) |
+| daily_fee | Decimal | Daily borrowing fee in USD |
+
+### Example: Create a Book
+
+POST `/books/`
+
+```json
+{
+    "title": "Clean Code",
+    "author": "Robert C. Martin",
+    "cover": "SOFT",
+    "inventory": 5,
+    "daily_fee": "1.50"
+}
+```
+
+Expected response: `201 Created`.
+
+Write operations require JWT authentication with staff
+permissions.
+
+Authentication header:
+
+```http
+Authorize: Bearer YOUR_ACCESS_TOKEN
+```
+
+
 ### Authentication
 
 Protected endpoints require JWT authentication.
@@ -153,6 +220,28 @@ Check test coverage:
 ```powershell
 python -m pytest --cov=users --cov-report=term-missing
 ```
+### Books Service Tests
+
+Run Books tests:
+
+```powershell
+python -m pytest books/tests.py -v
+```
+
+Check Books code coverage:
+
+```powershell
+python -m pytest books/tests.py --cov=books --cov-report=term-missing
+```
+
+Check overall project coverage:
+
+```powershell
+python -m pytest --cov=books --cov=users --cov-report=term-missing
+```
+
+The project requires at least 60% test coverage
+of custom functionality.
 
 Tests use a separate PostgreSQL test database. The database user must have the permissions needed to create it.
 
