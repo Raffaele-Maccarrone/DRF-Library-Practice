@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
+from django.db import IntegrityError, transaction
 
 from books.models import Book
 from borrowings.models import Borrowing
@@ -79,3 +80,19 @@ def test_actual_return_date_cannot_be_before_borrow_date(borrowing):
         borrowing.full_clean()
 
     assert "actual_return_date" in exc_info.value.message_dict
+
+@pytest.mark.django_db
+def test_database_rejects_invalid_expected_return_date(borrowing):
+    borrowing.expected_return_date = date(2026, 10, 17)
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            borrowing.save()
+
+@pytest.mark.django_db
+def test_database_rejects_invalid_actual_return_date(borrowing):
+    borrowing.actual_return_date = date(2026, 10, 17)
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            borrowing.save()
