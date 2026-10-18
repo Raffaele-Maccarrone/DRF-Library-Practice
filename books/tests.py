@@ -210,3 +210,67 @@ def test_regular_user_cannot_create_book(
 
     assert response.status_code == 403
     assert Book.objects.count() == 0
+
+def test_admin_can_access_book_list(client, admin_user, book):
+    client.force_login(admin_user)
+
+    url = reverse("admin:books_book_changelist")
+    response = client.get(url)
+
+    assert response.status_code == 200
+    assert book in response.context["cl"].result_list
+
+def test_django_admin_can_create_book(client, admin_user):
+    client.force_login(admin_user)
+
+    url = reverse("admin:books_book_add")
+
+    data = {
+        "title": "Python Crash Course",
+        "author": "Eric Matthes",
+        "cover": "SOFT",
+        "inventory": 10,
+        "daily_fee": "2.50",
+        "_save": "Save",
+    }
+
+    response = client.post(url, data)
+
+    assert response.status_code == 302
+    assert Book.objects.filter(
+        title="Python Crash Course"
+    ).exists()
+
+def test_django_admin_can_update_book(client, admin_user, book):
+    client.force_login(admin_user)
+
+    url = reverse("admin:books_book_change", args=[book.id])
+
+    data = {
+        "title": book.title,
+        "author": book.author,
+        "cover": book.cover,
+        "inventory": 20,
+        "daily_fee": "3.50",
+        "_save": "Save",
+    }
+
+    response = client.post(url, data)
+
+    assert response.status_code == 302
+
+    book.refresh_from_db()
+
+    assert book.inventory == 20
+    assert book.daily_fee == Decimal("3.50")
+
+def test_regular_user_cannot_access_book_admin(
+    client, regular_user
+):
+    client.force_login(regular_user)
+
+    url = reverse("admin:books_book_changelist")
+    response = client.get(url)
+
+    assert response.status_code == 302
+    assert "/admin/login/" in response.url
