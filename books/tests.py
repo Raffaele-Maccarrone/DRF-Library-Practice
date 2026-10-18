@@ -276,3 +276,12 @@ def test_regular_user_cannot_access_book_admin(
 
     assert response.status_code == 302
     assert "/admin/login/" in response.url
+
+def test_unauthenticated_user_can_retrieve_book(book):
+    client = APIClient()
+    url = reverse("book-detail", args=[book.pk])
+
+    response = client.get(url)
+
+    assert response.status_code == 200
+    assert response.data["title"] == book.title
