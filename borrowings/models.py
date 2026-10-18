@@ -37,3 +37,13 @@ class Borrowing(models.Model):
                     " earlier than borrow date."
                 )
             })
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    expected_return_date__gte=models.F("borrow_date")
+                ),
+                name="borrowing_expected_return_date_valid",
+            ),
+        ]
