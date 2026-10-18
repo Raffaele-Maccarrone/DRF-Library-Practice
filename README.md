@@ -240,6 +240,61 @@ http://127.0.0.1:8000/admin/
 | `inventory` | Positive Integer | Available copies |
 | `daily_fee` | Decimal | Daily borrowing fee in USD |
 
+## Borrowings API
+
+The Borrowings API provides read-only endpoints for retrieving library borrowing records.
+
+### Endpoints
+
+| Method | Endpoint | Description | Access |
+|--------|----------|-------------|--------|
+| GET | `/borrowings/` | List all borrowings | Staff only |
+| GET | `/borrowings/{id}/` | Retrieve a borrowing by ID | Staff only |
+
+### Borrowing Model
+
+Each borrowing contains:
+
+- `id`: Unique borrowing identifier.
+- `borrow_date`: Date when the book was borrowed.
+- `expected_return_date`: Expected return date.
+- `actual_return_date`: Actual return date, or `null` if not returned.
+- `book`: Related book, including its detailed information.
+- `user`: ID of the user who borrowed the book.
+
+### Date Validation
+
+The model implements the following validation rules:
+
+- `expected_return_date` cannot be earlier than `borrow_date`.
+- `actual_return_date`, when provided, cannot be earlier than `borrow_date`.
+
+These rules are checked through Django's model validation.
+
+### Permissions
+
+For Task 4, borrowing list and detail endpoints are restricted to staff users.
+
+User-specific access and filtering will be implemented in Task 6.
+
+### Tests
+
+Borrowing tests cover:
+
+- Retrieving a borrowing list.
+- Retrieving a specific borrowing.
+- Validating the expected return date.
+- Validating the actual return date.
+
+Run the tests with:
+
+```bash
+python -m pytest borrowings/tests.py -v
+```
+
+### API Documentation
+
+The borrowing endpoints are documented using drf-spectacular and are available in the Swagger UI.
 ### Example: Create a Book
 
 **Endpoint:**
