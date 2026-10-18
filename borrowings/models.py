@@ -46,4 +46,11 @@ class Borrowing(models.Model):
                 ),
                 name="borrowing_expected_return_date_valid",
             ),
+            models.CheckConstraint(
+                condition=(
+                        models.Q(actual_return_date__isnull=True)
+                        | models.Q(actual_return_date__gte=models.F("borrow_date"))
+                ),
+                name="borrowing_actual_return_date_valid",
+            ),
         ]
