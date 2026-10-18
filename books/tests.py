@@ -91,3 +91,63 @@ def test_admin_can_create_book(admin_client, book_data):
     assert response.status_code == 201
     assert Book.objects.count() == 1
     assert response.data["title"] == book_data["title"]
+
+def test_admin_can_update_book(admin_client, book):
+    url = reverse("book-detail", args=[book.id])
+
+    data = {
+        "title": "Clean Code Updated",
+        "author": "Robert C. Martin",
+        "cover": "HARD",
+        "inventory": 8,
+        "daily_fee": "3.00",
+    }
+
+    response = admin_client.put(
+        url,
+        data,
+        format="json",
+    )
+
+    assert response.status_code == 200
+
+    book.refresh_from_db()
+
+    assert book.title == "Clean Code Updated"
+    assert book.cover == "HARD"
+    assert book.inventory == 8
+    assert book.daily_fee == Decimal("3.00")
+
+
+def test_admin_can_partially_update_book(admin_client, book):
+    url = reverse("book-detail", args=[book.id])
+
+    response = admin_client.patch(
+        url,
+        {"inventory": 3},
+        format="json",
+    )
+
+    assert response.status_code == 200
+
+    book.refresh_from_db()
+
+    assert book.inventory == 3
+    assert book.title == "Clean Code"
+
+
+def test_admin_can_delete_book(admin_client, book):
+    url = reverse("book-detail", args=[book.id])
+
+    response = admin_client.delete(url)
+
+    assert response.status_code == 204
+    assert not Book.objects.filter(id=book.id).exists()
+
+
+def test_retrieve_nonexistent_book(admin_client):
+    url = reverse("book-detail", args=[999999])
+
+    response = admin_client.get(url)
+
+    assert response.status_code == 404
