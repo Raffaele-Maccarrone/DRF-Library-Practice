@@ -178,21 +178,23 @@ def test_create_book_with_invalid_data(
     assert field in response.data
     assert Book.objects.count() == 0
 
-def test_unauthenticated_user_cannot_list_books():
+def test_unauthenticated_user_can_list_books(book):
     client = APIClient()
 
     response = client.get(reverse("book-list"))
 
-    assert response.status_code == 401
+    assert response.status_code == 200
+    assert response.data[0]["title"] == book.title
 
 
-def test_regular_user_cannot_list_books(regular_user):
+def test_regular_user_can_list_books(regular_user, book):
     client = APIClient()
     client.force_authenticate(user=regular_user)
 
     response = client.get(reverse("book-list"))
 
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.data[0]["title"] == book.title
 
 
 def test_regular_user_cannot_create_book(
@@ -274,3 +276,12 @@ def test_regular_user_cannot_access_book_admin(
 
     assert response.status_code == 302
     assert "/admin/login/" in response.url
+
+def test_unauthenticated_user_can_retrieve_book(book):
+    client = APIClient()
+    url = reverse("book-detail", args=[book.pk])
+
+    response = client.get(url)
+
+    assert response.status_code == 200
+    assert response.data["title"] == book.title

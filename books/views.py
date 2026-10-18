@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAdminUser
 
 from books.models import Book
 from books.serializers import BookSerializer
+from books.permissions import IsAdminOrReadOnly
 
 
 @extend_schema_view(
@@ -44,4 +45,4 @@ from books.serializers import BookSerializer
 class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.all().order_by("id")
     serializer_class = BookSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAdminOrReadOnly]
