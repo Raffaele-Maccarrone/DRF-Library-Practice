@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -62,3 +63,19 @@ def test_admin_can_retrieve_borrowing(admin_client, borrowing):
     assert response.status_code == 200
     assert response.data["id"] == borrowing.pk
     assert response.data["book"]["title"] == borrowing.book.title
+
+@pytest.mark.django_db
+def test_expected_return_date_cannot_be_before_borrow_date(borrowing):
+    borrowing.expected_return_date = date(2026, 10, 17)
+
+    with pytest.raises(ValidationError) as exc_info:
+        borrowing.full_clean()
+
+    assert "expected_return_date" in exc_info.value.message_dict
+
+def test_actual_return_date_cannot_be_before_borrow_date(borrowing):
+    borrowing.actual_return_date = date(2026, 10, 17)
+    with pytest.raises(ValidationError) as exc_info:
+        borrowing.full_clean()
+
+    assert "actual_return_date" in exc_info.value.message_dict
