@@ -151,3 +151,62 @@ def test_retrieve_nonexistent_book(admin_client):
     response = admin_client.get(url)
 
     assert response.status_code == 404
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("inventory", -5),
+        ("daily_fee", "-1.50"),
+        ("cover", "INVALID"),
+    ],
+)
+def test_create_book_with_invalid_data(
+    admin_client,
+    book_data,
+    field,
+    value,
+):
+    book_data[field] = value
+
+    response = admin_client.post(
+        reverse("book-list"),
+        book_data,
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert field in response.data
+    assert Book.objects.count() == 0
+
+def test_unauthenticated_user_cannot_list_books():
+    client = APIClient()
+
+    response = client.get(reverse("book-list"))
+
+    assert response.status_code == 401
+
+
+def test_regular_user_cannot_list_books(regular_user):
+    client = APIClient()
+    client.force_authenticate(user=regular_user)
+
+    response = client.get(reverse("book-list"))
+
+    assert response.status_code == 403
+
+
+def test_regular_user_cannot_create_book(
+    regular_user,
+    book_data,
+):
+    client = APIClient()
+    client.force_authenticate(user=regular_user)
+
+    response = client.post(
+        reverse("book-list"),
+        book_data,
+        format="json",
+    )
+
+    assert response.status_code == 403
+    assert Book.objects.count() == 0
