@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 from decimal import Decimal
 
 import pytest
@@ -19,6 +20,19 @@ def admin_user(db):
         email="admin@example.com",
         password="TestPassword123!",
     )
+
+@pytest.fixture
+def regular_user(db):
+    return get_user_model().objects.create_user(
+        email="reader@example.com",
+        password="TestPassword123!",
+    )
+
+@pytest.fixture
+def regular_client(regular_user):
+    client = APIClient()
+    client.force_authenticate(user=regular_user)
+    return client
 
 @pytest.fixture
 def admin_client(admin_user):
@@ -96,3 +110,98 @@ def test_database_rejects_invalid_actual_return_date(borrowing):
     with pytest.raises(IntegrityError):
         with transaction.atomic():
             borrowing.save()
+
+@pytest.mark.django_db
+def test_authenticated_user_can_create_borrowing(
+    regular_client, regular_user, book
+):
+    expected_return_date = timezone.localdate() + timedelta(days=7)
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": expected_return_date.isoformat(),
+    }
+
+    response = regular_client.post(
+        reverse("borrowing-list"),
+        data,
+        format="json",
+    )
+    assert response.status_code == 201
+    created_borrowing = Borrowing.objects.get(
+        book=book,
+        user=regular_user,
+    )
+    assert created_borrowing.user == regular_user
+    book.refresh_from_db()
+    assert book.inventory == 4
+
+@pytest.mark.django_db
+def test_cannot_create_borrowing_when_book_out_of_stock(
+    regular_client, regular_user, book
+):
+    book.inventory = 0
+    book.save(update_fields=["inventory"])
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": (
+            timezone.localdate() + timedelta(days=7)
+        ).isoformat(),
+    }
+
+    response = regular_client.post(
+        reverse("borrowing-list"),
+        data,
+        format="json",
+    )
+    assert response.status_code == 400
+    Borrowing.objects.filter(
+        book=book,
+        user=regular_user,
+    ).exists()
+    book.refresh_from_db()
+    assert book.inventory == 0
+
+@pytest.mark.django_db
+def test_cannot_create_borrowing_with_invalid_return_date(
+    regular_client, regular_user, book
+):
+    invalid_date = timezone.localdate() - timedelta(days=1)
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": invalid_date.isoformat(),
+    }
+
+    response = regular_client.post(
+        reverse("borrowing-list"),
+        data,
+        format="json",
+    )
+    assert response.status_code == 400
+    assert not Borrowing.objects.filter(
+        book=book,
+        user=regular_user,
+    ).exists()
+
+@pytest.mark.django_db
+def test_unauthenticated_user_cannot_create_borrowing(book):
+    client = APIClient()
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": (
+            timezone.localdate() + timedelta(days=7)
+        ).isoformat(),
+    }
+
+    response = client.post(
+        reverse("borrowing-list"),
+        data,
+        format="json",
+    )
+    assert response.status_code == 401
+    Borrowing.objects.filter(book=book).exists()
+    book.refresh_from_db()
+    assert book.inventory == 5
