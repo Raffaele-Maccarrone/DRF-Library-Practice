@@ -135,6 +135,8 @@ def test_authenticated_user_can_create_borrowing(
     assert created_borrowing.user == regular_user
     book.refresh_from_db()
     assert book.inventory == 4
+    assert response.data["book"] == book.pk
+    assert response.data["expected_return_date"] == expected_return_date.isoformat()
 
 @pytest.mark.django_db
 def test_cannot_create_borrowing_when_book_out_of_stock(
