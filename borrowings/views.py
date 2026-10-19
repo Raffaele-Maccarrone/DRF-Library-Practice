@@ -13,8 +13,17 @@ from drf_spectacular.utils import (
         summary="List borrowings",
         description="Retrieve a list of library borrowings.",
         tags=["Borrowings"],
-    )
+    ),
+    post=extend_schema(
+        summary="Create borrowing",
+        description=(
+            "Create a borrowing for the authenticated user "
+            "and decrease book inventory."
+        ),
+        tags=["Borrowings"],
+    ),
 )
+
 class BorrowingListView(generics.ListCreateAPIView):
     queryset = Borrowing.objects.select_related(
         "book", "user"
