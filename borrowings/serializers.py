@@ -17,3 +17,18 @@ class BorrowingReadSerializer(serializers.ModelSerializer):
             "user",
         )
         read_only_fields = fields
+
+class BorrowingCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Borrowing
+        fields = (
+            "book",
+            "expected_return_date",
+        )
+        def validate_book(self, value):
+            if value.inventory <= 0:
+                raise serializers.ValidationError(
+                    "Book is out of stock."
+                )
+
+            return value
