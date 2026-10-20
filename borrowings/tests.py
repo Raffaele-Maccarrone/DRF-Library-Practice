@@ -379,3 +379,81 @@ def test_send_telegram_message_api_failure():
     ):
         with pytest.raises(RuntimeError):
             send_telegram_message("Test message")
+@pytest.mark.django_db
+def test_telegram_notification_after_borrowing_creation(
+    regular_client,
+    regular_user,
+    book,
+    django_capture_on_commit_callbacks,
+):
+    expected_return_date = timezone.localdate() + timedelta(days=7)
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": expected_return_date.isoformat(),
+    }
+
+    with patch(
+        "borrowings.serializers.send_telegram_message"
+    ) as mock_send:
+
+        with django_capture_on_commit_callbacks(
+            execute=True
+        ) as callbacks:
+
+            response = regular_client.post(
+                reverse("borrowing-list"),
+                data,
+                format="json",
+            )
+
+            assert response.status_code == 201
+
+            mock_send.assert_not_called()
+        assert len(callbacks) == 1
+        mock_send.assert_called_once()
+        message = mock_send.call_args.args[0]
+        assert book.title in message
+
+@pytest.mark.django_db
+def test_telegram_notification_not_sent_after_rollback(
+    regular_client,
+    book,
+    django_capture_on_commit_callbacks,
+):
+    original_inventory = book.inventory
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": (
+            timezone.localdate() + timedelta(days=7)
+        ).isoformat(),
+    }
+
+    with patch(
+        "borrowings.serializers.send_telegram_message"
+    ) as mock_send:
+
+        with django_capture_on_commit_callbacks(
+            execute=True
+        ) as callbacks:
+
+            with pytest.raises(RuntimeError, match="Forced rollback"):
+                with transaction.atomic():
+                    response = regular_client.post(
+                        reverse("borrowing-list"),
+                        data,
+                        format="json",
+                    )
+
+                    assert response.status_code == 201
+
+                    raise RuntimeError("Forced rollback")
+
+        assert len(callbacks) == 0
+        mock_send.assert_not_called()
+
+    book.refresh_from_db()
+
+    assert book.inventory == original_inventory
+    assert not Borrowing.objects.filter(book=book).exists()
