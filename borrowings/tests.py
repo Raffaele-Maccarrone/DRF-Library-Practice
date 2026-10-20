@@ -207,3 +207,107 @@ def test_unauthenticated_user_cannot_create_borrowing(book):
     Borrowing.objects.filter(book=book).exists()
     book.refresh_from_db()
     assert book.inventory == 5
+
+@pytest.mark.django_db
+def test_admin_can_return_borrowing(admin_client, borrowing):
+    original_inventory = borrowing.book.inventory
+
+    url = reverse("borrowing-return", args=[borrowing.pk])
+
+    response = admin_client.post(url)
+
+    borrowing.refresh_from_db()
+    borrowing.book.refresh_from_db()
+    assert response.status_code == 200
+    assert borrowing.book.inventory == original_inventory + 1
+    assert borrowing.actual_return_date == timezone.localdate()
+
+@pytest.mark.django_db
+def test_cannot_return_borrowing_twice(admin_client, borrowing):
+    url = reverse("borrowing-return", args=[borrowing.pk])
+
+    first_response = admin_client.post(url)
+
+    borrowing.refresh_from_db()
+    book = borrowing.book
+    book.refresh_from_db()
+
+    inventory_after_first_return = book.inventory
+
+    second_response = admin_client.post(url)
+
+    book.refresh_from_db()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 400
+    assert borrowing.book.inventory == inventory_after_first_return
+
+@pytest.mark.django_db
+def test_user_can_return_only_own_borrowing(
+    regular_client, regular_user, borrowing
+):
+    book = borrowing.book
+    original_inventory = book.inventory
+
+    url = reverse("borrowing-return", args=[borrowing.pk])
+
+    response = regular_client.post(url)
+
+    borrowing.refresh_from_db()
+    book.refresh_from_db()
+
+    assert response.status_code == 404
+    assert borrowing.actual_return_date is None
+    assert book.inventory == original_inventory
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": (
+            timezone.localdate() + timedelta(days=7)
+        ).isoformat(),
+    }
+
+    response = regular_client.post(
+        reverse("borrowing-list"),
+        data,
+        format="json",
+    )
+
+    assert response.status_code == 201
+
+    own_borrowing = Borrowing.objects.get(
+        book=book,
+        user=regular_user,
+    )
+
+    book.refresh_from_db()
+    assert book.inventory == original_inventory - 1
+
+    url = reverse("borrowing-return", args=[own_borrowing.pk])
+
+    response = regular_client.post(url)
+
+    own_borrowing.refresh_from_db()
+    book.refresh_from_db()
+
+    assert response.status_code == 200
+    assert own_borrowing.actual_return_date == timezone.localdate()
+    assert book.inventory == original_inventory
+
+@pytest.mark.django_db
+def test_unauthenticated_user_cannot_return_borrowing(borrowing):
+    client = APIClient()
+
+    book = borrowing.book
+    original_inventory = book.inventory
+
+    url = reverse("borrowing-return", args=[borrowing.pk])
+
+    response = client.post(url)
+
+    borrowing.refresh_from_db()
+    book.refresh_from_db()
+
+    assert response.status_code == 401
+    assert borrowing.actual_return_date is None
+    assert book.inventory == original_inventory
