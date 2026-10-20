@@ -1,3 +1,6 @@
+import json
+from io import BytesIO
+from unittest.mock import patch
 from datetime import date, timedelta
 from django.utils import timezone
 from decimal import Decimal
@@ -9,9 +12,12 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
 from django.db import IntegrityError, transaction
+from django.test import override_settings
+
 
 from books.models import Book
 from borrowings.models import Borrowing
+from borrowings.telegram import send_telegram_message
 
 
 @pytest.fixture
@@ -311,3 +317,65 @@ def test_unauthenticated_user_cannot_return_borrowing(borrowing):
     assert response.status_code == 401
     assert borrowing.actual_return_date is None
     assert book.inventory == original_inventory
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+def test_send_telegram_message():
+    fake_response = BytesIO(
+        json.dumps({
+            "ok": True,
+            "result": {"message_id": 123},
+        }).encode("utf-8")
+    )
+
+    with patch(
+        "borrowings.telegram.urlopen",
+        return_value=fake_response,
+    ) as mock_urlopen:
+        result = send_telegram_message("New borrowing created!")
+    assert result["message_id"] == 123
+    mock_urlopen.assert_called_once()
+    request = mock_urlopen.call_args.args[0]
+
+    assert request.get_method() == "POST"
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["chat_id"] == "123456789"
+    assert payload["text"] == "New borrowing created!"
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="",
+    TELEGRAM_CHAT_ID="",
+)
+def test_send_telegram_message_without_configuration():
+    with patch("borrowings.telegram.urlopen") as mock_urlopen:
+        with pytest.raises(
+            ValueError,
+            match="Telegram configuration is missing."
+        ):
+            send_telegram_message("Test message")
+
+    mock_urlopen.assert_not_called()
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+def test_send_telegram_message_api_failure():
+    fake_response = BytesIO(
+        json.dumps({
+            "ok": False,
+            "description": "Bad Request",
+        }).encode("utf-8")
+    )
+    with patch(
+        "borrowings.telegram.urlopen",
+        return_value=fake_response,
+    ):
+        with pytest.raises(RuntimeError):
+            send_telegram_message("Test message")
