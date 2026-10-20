@@ -1,423 +1,350 @@
-
 Loading older messages…
-como fazer
+proximo
 
-Para documentar o POST /borrowings/ no Swagger, você só precisa adicionar um segundo extend_schema() ao decorator que já criamos.
+Vamos continuar a Task 7 — Return Borrowing!
 
-Abra borrowings/views.py e deixe a parte da BorrowingListView assim:
-@extend_schema_view(
-    get=extend_schema(
-        summary="List borrowings",
-        description="Retrieve a list of library borrowings.",
-        tags=["Borrowings"],
+Agora estamos no Passo 11 — Testar devoluções sem autenticação.
+
+Já criamos testes para verificar se o usuário consegue devolver o próprio livro, não consegue devolver o de outra pessoa e não consegue devolver o mesmo empréstimo duas vezes.
+
+Falta verificar se um visitante sem autenticação pode acessar o endpoint de devolução.
+1. Comportamento esperado
+
+Verificação
+	
+
+Resultado
+
+POST /borrowings/{id}/return/ sem autenticação
+	
+
+HTTP 401
+
+actual_return_date
+	
+
+Continua None
+
+Estoque do livro
+	
+
+Não é alterado
+2. Criar o teste
+
+Abra borrowings/tests.py e adicione:
+@pytest.mark.django_db
+def test_unauthenticated_user_cannot_return_borrowing(borrowing):
+    client = APIClient()
+
+    book = borrowing.book
+    original_inventory = book.inventory
+
+    url = reverse("borrowing-return", args=[borrowing.pk])
+
+    response = client.post(url)
+
+    borrowing.refresh_from_db()
+    book.refresh_from_db()
+
+    # Seus asserts aqui
+
+Observe que utilizamos APIClient() sem force_authenticate(), pois queremos simular um visitante.
+3. Seu desafio
+
+Complete os três asserts para verificar que:
+
+    response.status_code é 401.
+
+    borrowing.actual_return_date continua None.
+
+    book.inventory continua igual a original_inventory.
+
+Você já utilizou essas verificações nos testes anteriores.
+4. Executar o teste
+
+Primeiro, execute somente o novo teste:
+
+python -m pytest borrowings/tests.py::test_unauthenticated_user_cannot_return_borrowing -v
+
+Depois, execute todos os testes de Borrowings:
+
+python -m pytest borrowings/tests.py -v
+
+Se todos passarem, registre os testes de devolução:
+
+git add borrowings/tests.py
+git commit -m "test: cover borrowing returns and permissions"
+
+Sua tarefa agora: complete os três asserts e me envie o resultado. Depois vamos documentar o endpoint no Swagger e finalizar a Task 7.
+proximo
+
+Vamos continuar a Task 7 — Return Borrowing!
+
+Agora estamos no Passo 12 — Documentar a devolução no Swagger.
+
+Já implementamos a lógica de devolução e escrevemos os testes principais. Vamos documentar o endpoint:
+POST /borrowings/{id}/return/
+1. Adicionar a documentação
+
+Abra borrowings/views.py.
+
+Confira se você possui estas importações:
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+
+Agora, dentro de BorrowingReturnView, coloque este decorator imediatamente acima do método post():
+@extend_schema(
+    summary="Return borrowing",
+    description=(
+        "Return a borrowed book and increase its inventory by one. "
+        "Users can return their own borrowings, while staff "
+        "members can return any borrowing."
     ),
-    post=extend_schema(
-        summary="Create borrowing",
-        description=(
-            "Create a borrowing for the authenticated user "
-            "and decrease book inventory."
-        ),
-        tags=["Borrowings"],
-    ),
+    request=None,
+    responses={
+        200: OpenApiResponse(description="Borrowing returned successfully."),
+        400: OpenApiResponse(description="Borrowing already returned."),
+        401: OpenApiResponse(description="Authentication required."),
+        404: OpenApiResponse(description="Borrowing not found or not accessible."),
+    },
+    tags=["Borrowings"],
 )
-class BorrowingListView(generics.ListCreateAPIView):
-    queryset = Borrowing.objects.select_related("book", "user").all()
+def post(self, request, pk):
+    # Mantenha aqui a implementação que já fizemos.
+O que há de novo?
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return BorrowingCreateSerializer
+    request=None: indica que a requisição não precisa receber dados no corpo. O ID do empréstimo já vem da URL.
 
-        return BorrowingReadSerializer
+    responses: documenta os possíveis códigos HTTP retornados pela API.
 
-    def get_permissions(self):
-        if self.request.method == "POST":
-            return [IsAuthenticated()]
+    OpenApiResponse: permite descrever cada resposta.
 
-        return [IsAdminUser()]
-Entendendo o que adicionamos
-
-O @extend_schema_view permite documentar diferentes métodos HTTP da mesma view.
-
-Código
-	
-
-Função
-
-get=extend_schema(...)
-	
-
-Documenta a listagem de empréstimos
-
-post=extend_schema(...)
-	
-
-Documenta a criação de empréstimos
-
-summary
-	
-
-Define o título exibido no Swagger
-
-description
-	
-
-Explica o comportamento do endpoint
-
-tags
-	
-
-Agrupa as operações em Borrowings
-
-O drf-spectacular também utiliza nosso get_serializer_class() para identificar que o POST recebe os campos definidos em BorrowingCreateSerializer.
-Agora vamos verificar
+Não precisa modificar a lógica do método post().
+2. Verificar no Swagger
 
 Execute:
 
 python manage.py spectacular --validate
 
+Depois abra o Swagger com o servidor em execução:
+
+http://127.0.0.1:8000/api/docs/
+
+Na seção Borrowings, você deverá encontrar:
+
+Método
+	
+
+Endpoint
+	
+
+Descrição
+
+GET
+	
+
+/borrowings/
+	
+
+List borrowings
+
+POST
+	
+
+/borrowings/
+	
+
+Create borrowing
+
+GET
+	
+
+/borrowings/{id}/
+	
+
+Retrieve borrowing
+
+POST
+	
+
+/borrowings/{id}/return/
+	
+
+Return borrowing
+3. Executar todos os testes
+
+python -m pytest borrowings/tests.py -v
+
 Depois:
 
 python -m pytest -v
 
-Se tudo passar, faça o commit:
+Se tudo passar, podemos preparar os commits da Task 7.
+Próximo passo
 
-git add borrowings/views.py
-git commit -m "docs: document borrowing creation endpoint"
+Vamos revisar o código da devolução, conferir a cobertura e atualizar o README.
 
-Próximo passo: verificar a cobertura de testes e atualizar o README com o novo endpoint POST /borrowings/.
-
-Antes de finalizar a Task 5, também vamos conferir se a resposta da criação apresenta os dados esperados do empréstimo, além de verificar o código HTTP 201 e a redução do estoque.
+Por enquanto, adicione o decorator e execute a validação do Swagger. Se aparecer algum warning ou erro, envie a mensagem para corrigirmos antes de fazer o commit.
 proximo
 
-Vamos para o Passo 9 — Verificar a resposta da API e a cobertura dos testes da Task 5.
+Vamos para o Passo 13 — Revisão final e cobertura de testes da Task 7 — Return Borrowing.
 
-Já implementamos a criação de empréstimos, a redução do estoque, as permissões e a documentação Swagger. Agora precisamos garantir que a resposta do POST /borrowings/ esteja correta.
-1. Melhorar o teste de criação
+Agora que implementamos o endpoint, as permissões, os testes e a documentação Swagger, precisamos verificar se está tudo funcionando antes dos commits e do Pull Request.
+1. Revisar a BorrowingReturnView
 
-Abra borrowings/tests.py e encontre:
-def test_authenticated_user_can_create_borrowing(
-    regular_client, regular_user, book
-):
+Abra borrowings/views.py.
 
-Você já verifica se a resposta é 201, se o empréstimo pertence ao usuário e se o estoque diminuiu.
+Confira se sua implementação atende a estas condições:
 
-Agora adicione mais dois asserts, logo após a requisição:
-assert response.data["book"] == book.pk
-assert response.data["expected_return_date"] == expected_return_date.isoformat()
-Por que fazer isso?
+    Usa IsAuthenticated para impedir devoluções sem login.
 
-Até agora, nosso teste verifica principalmente o que aconteceu no banco de dados.
+    Usa get_queryset() para permitir que usuários comuns acessem apenas os próprios empréstimos.
 
-Esses novos asserts verificam o conteúdo da resposta HTTP.
+    Utiliza transaction.atomic() e select_for_update() para proteger a operação.
 
-Com o BorrowingCreateSerializer atual, esperamos algo semelhante a:
+    Impede uma segunda devolução quando actual_return_date is not None.
 
-{
-  "book": 1,
-  "expected_return_date": "2026-10-26"
-}
+    Registra a data atual e aumenta o estoque exatamente uma vez.
 
-Observe que, por enquanto, a resposta não inclui todos os campos do empréstimo, pois estamos utilizando o serializer de criação.
+    Salva os dois objetos no banco de dados.
+
+A parte de atualização deve estar assim:
+borrowing.actual_return_date = timezone.localdate()
+borrowing.save(update_fields=["actual_return_date"])
+
+book.inventory += 1
+book.save(update_fields=["inventory"])
+
+O retorno HTTP 200 deve acontecer depois da conclusão da transação.
 2. Executar os testes
 
-Primeiro, execute o teste que acabamos de modificar:
+Primeiro, execute todos os testes de Borrowings:
 
-python -m pytest borrowings/tests.py::test_authenticated_user_can_create_borrowing -v
+python -m pytest borrowings/tests.py -v
 
-Depois, execute todos os testes:
+Depois, a suíte completa:
 
 python -m pytest -v
 
-Se todos passarem, faça o commit:
-
-git add borrowings/tests.py
-git commit -m "test: verify borrowing creation response"
-
+Se algum teste falhar, vamos corrigir antes de continuar.
 3. Verificar a cobertura
 
 Execute:
 
 python -m pytest --cov=books --cov=users --cov=borrowings --cov-report=term-missing
 
-Como o requisito do projeto é de 60% de cobertura do código personalizado, podemos obter um relatório mais representativo excluindo testes e migrations:
+Para conferir a cobertura sem incluir testes e migrations:
 
 python -m coverage report --omit="*/tests.py,*/migrations/*" --show-missing
 
-Na Task 4, obtivemos 99% no relatório geral, mas ele também incluía os próprios testes. Agora verificaremos a cobertura do código de implementação.
-Progresso da Task 5
+Lembre-se: nosso requisito é de pelo menos 60% de cobertura do código personalizado, não necessariamente 100%.
+4. Preparar os commits
 
-Etapa
-	
+Se os testes passaram e você ainda não registrou as alterações da Task 7, podemos criar dois commits separados:
 
-Situação
+Implementação:
 
-BorrowingCreateSerializer
-	
+git add borrowings/views.py borrowings/urls.py
+git commit -m "feat: implement borrowing return endpoint"
 
-Implementado
+Testes:
 
-Validação de estoque
-	
+git add borrowings/tests.py
+git commit -m "test: cover borrowing returns and permissions"
 
-Implementada
+Se já fez algum desses commits, não precisa repetir.
+Progresso da Task 7
 
-Criação com transaction.atomic
-	
+Return Borrowing
 
-Implementada
-
-Permissões GET/POST
-	
-
-Implementadas
-
-Testes de criação e validação
-	
-
-Verificar execução
-
-Swagger
-	
-
-Implementado
-
-Cobertura
-	
-
-Verificar agora
-
+6/8
+Endpoint de devolução
+Atualização da data e do estoque
+Proteção contra devolução duplicada
+Permissões por proprietário
+Testes automatizados
+Documentação Swagger
+Verificação final dos testes
 README e Pull Request
+
+Agora execute os testes e me envie o resultado da cobertura. Depois vamos atualizar o README completo, pronto para copiar e colar, e preparar o Pull Request da Task 7.
+
+Após isso, começaremos a Task 8 — Telegram Notifications, nossa primeira integração com uma API externa.
+atualizer o readme tambem com o novo objetivo de 8 tasks
+Worked for 2m 56s
+
+Atualizei o README completo com nosso novo objetivo de 8 tasks, incluindo a Task 7 — Return Borrowing.
+
+README atualizado — 8 Tasks
+
+Markdown completo, pronto para copiar e colar no PyCharm.
+
+ Baixar README atualizado
+Novo planejamento no README
+
+Task
 	
 
-Próximos passos
+Funcionalidade
+	
 
-Execute os testes e os comandos de cobertura e me envie o resultado. Se tudo estiver correto, na próxima etapa vou preparar a atualização do README pronta para copiar, seguida do Pull Request da Task 5.
-proximo
+Status
 
-Vamos para o Passo 10 — Atualizar o README da Task 5: Create Borrowing.
+1–5
+	
 
-Agora precisamos documentar o endpoint POST /borrowings/, as validações e o funcionamento do estoque.
+Funcionalidades já desenvolvidas
+	
 
-Como combinamos para este projeto, vou deixar o texto pronto para copiar e colar, sem você precisar escrever a documentação sozinho.
-1. Atualizar a seção Borrowings API
+Concluídas
 
-Abra o arquivo README.md e substitua a seção ## Borrowings API pelo conteúdo abaixo.
+7
+	
 
-## Borrowings API
+Return Borrowing
+	
 
-The Borrowings API allows authenticated users to borrow available books and staff users to retrieve borrowing records.
-
-### Endpoints
-
-| Method | Endpoint | Description | Access |
-|--------|----------|-------------|--------|
-| GET | `/borrowings/` | List all borrowings | Staff only |
-| GET | `/borrowings/{id}/` | Retrieve borrowing details | Staff only |
-| POST | `/borrowings/` | Create a new borrowing | Authenticated users |
-
-### Borrowing Model
-
-Each borrowing contains:
-
-- `id`: Unique borrowing identifier.
-- `borrow_date`: Date when the book was borrowed.
-- `expected_return_date`: Expected return date.
-- `actual_return_date`: Actual return date, or `null` if not returned.
-- `book`: Related book.
-- `user`: User responsible for the borrowing.
-
-### Create a Borrowing
-
-**Endpoint:**
-
-```http
-POST /borrowings/
-```
-
-**Request Body:**
-
-```json
-{
-  "book": 1,
-  "expected_return_date": "2026-11-15"
-}
-```
-
-**Successful Response:**
-
-```http
-201 Created
-```
-
-```json
-{
-  "book": 1,
-  "expected_return_date": "2026-11-15"
-}
-```
-
-The borrowing date and user are automatically assigned by the server.
-
-### Borrowing Creation Rules
-
-- Authentication is required to create a borrowing.
-- The selected book must have available inventory.
-- The expected return date cannot be earlier than the borrowing date.
-- A successful borrowing decreases the book inventory by one.
-- Book inventory cannot become negative through the borrowing creation endpoint.
-- Borrowing creation and inventory updates occur inside a database transaction.
-- PostgreSQL row-level locking protects inventory updates from concurrent borrowing requests.
-
-### Validation
-
-The API returns `400 Bad Request` when:
-
-- The selected book is out of stock.
-- The expected return date is invalid.
-
-Unauthenticated borrowing creation requests are rejected.
-
-### Permissions
-
-Borrowing creation is available to authenticated users.
-
-For Tasks 4 and 5, borrowing list and detail endpoints remain restricted to staff users.
-
-User-specific borrowing access and filtering will be implemented in Task 6.
-
-### Automated Tests
-
-Tests cover:
-
-- Successful borrowing creation.
-- Automatic assignment of the authenticated user.
-- Inventory reduction after borrowing creation.
-- Rejection of out-of-stock books.
-- Rejection of invalid expected return dates.
-- Rejection of unauthenticated borrowing requests.
-- Borrowing date and database constraint validation.
-
-Run borrowing tests:
-
-```bash
-python -m pytest borrowings/tests.py -v
-```
-
-### API Documentation
-
-Borrowing endpoints are documented using drf-spectacular and available through Swagger UI.
-2. Atualizar o Project Roadmap
-
-No roadmap, ajuste estas linhas, desde que os testes finais estejam passando:
-| 4 | Borrowing List & Detail | Implemented |
-| 5 | Create Borrowing | Implemented |
-| 6 | Borrowing Filtering | Planned |
-
-Na seção ## Features, acrescente:
-### Borrowings Service
-
-- Borrowing model with book and user relationships
-- Borrowing list and detail endpoints
-- Authenticated borrowing creation
-- Automatic user and borrowing date assignment
-- Book inventory validation and automatic reduction
-- Atomic transactions and row-level locking
-- Borrowing date validation and database constraints
-- Automated borrowing tests
-3. Atualizar os comandos de cobertura
-
-Na seção ## Testing, substitua o comando de cobertura geral por:
-
-python -m pytest --cov=books --cov=users --cov=borrowings --cov-report=term-missing
-
-Isso inclui o aplicativo borrowings na medição.
-4. Fazer o commit
-
-Depois de atualizar o README:
-
-git add README.md
-git commit -m "docs: document borrowing creation endpoint"
-
-Confira:
-
-git status
-
-Progresso da Task 5
-
-Create Borrowing
 Revisão final
 
-     
-    Serializer de criação
+8
+	
 
-     
-    Validação de estoque e datas
+Telegram Notifications
+	
 
-     
-    Transação e redução do inventário
+Pendente
 
-     
-    Permissões GET e POST
+9
+	
 
-     
-    Documentação Swagger
+Overdue Notifications
+	
 
-     
-    Confirmar testes e cobertura
+Pendente
 
-     
-    README e Pull Request
+Também atualizei a documentação da devolução, as permissões, os testes e as próximas etapas. As Tasks 6 e 10–15 agora aparecem como fora do escopo, e removi pagamentos e Docker Compose do planejamento ativo.
 
-Próximo passo: fazer a verificação final da Task 5 e preparar o Pull Request com título, descrição e checklist em inglês para o GitHub.
-Pasted markdown(2).mdDocument
-atualize, mas deixe pronto para copiar e colaer
-Worked for 4m 43s
+Mantive a Task 7 em revisão final porque ainda precisamos confirmar os testes e o Pull Request.
+Como aplicar
 
-Atualizei o README completo com as funcionalidades da Task 5 — Create Borrowing, preservando as seções anteriores do seu projeto.
+Abra o arquivo acima, copie todo o conteúdo e substitua seu README.md no PyCharm.
 
- README.md atualizado — pronto para copiar
-
-O arquivo já contém todas as seções organizadas, incluindo:
-
-    Tasks 1 a 4 como implementadas e Task 5 em revisão final.
-
-    POST /borrowings/, com exemplos de requisição e resposta.
-
-    Validação de estoque, datas, transaction.atomic() e select_for_update().
-
-    Permissões de livros e empréstimos.
-
-    Testes, comandos de cobertura e próximos módulos.
-
-    Correção do exemplo de criação de livros que estava na seção errada.
-
-Para copiar e colar no PyCharm: abra o arquivo acima, copie todo o conteúdo (Ctrl + A, Ctrl + C) e substitua o conteúdo do seu README.md.
-
-Mantive a Task 5 como In Progress — Final Verification porque ainda não recebi o resultado final de todos os testes. Depois que passarem, podemos alterar para Implemented.
-Commit
-
-Após substituir o README:
+Depois, execute:
 
 git add README.md
-git commit -m "docs: update README with borrowing creation API"
+git commit -m "docs: update README for eight-task project scope and returns"
 
-Depois execute:
-
-python -m pytest -v
-python manage.py spectacular --validate
-git status
-
-Com essas verificações concluídas, o próximo passo será preparar o Pull Request da Task 5, com título e descrição em inglês prontos para copiar no GitHub.
-README_task5_updated.mdDocument
+Próximo passo: finalizar o Pull Request da Task 7 e começar nossa primeira integração externa na Task 8 — Telegram Notifications.
 DRF Library Service
 
 A RESTful backend API for a library management system, built with Django REST Framework and PostgreSQL.
 
-This project is part of a technical assessment practice assignment. It aims to replace manual library workflows with an API for managing customers, book inventory, borrowings, notifications, and payments.
+This project is based on a technical assessment practice assignment. It replaces manual library workflows with an API for managing users, books, inventory, borrowings, returns, and notifications.
+
+Current scope: 8 selected tasks from the original 15-task assignment. This is a focused learning and portfolio implementation, not a claim that all mandatory tasks in the original assignment are complete.
 
 No frontend is required. The API can be explored through Django REST Framework's browsable API and Swagger UI.
 
-    Project Status: Under active development. Users Service, Books Service CRUD and permissions, and borrowing list/detail endpoints have been implemented. Task 5 (Create Borrowing) is in final testing and review.
+    Project Status: Under active development. Tasks 1–5 are implemented. Task 7 (Return Borrowing) is under final testing and review. Tasks 8 (Telegram Notifications) and 9 (Overdue Notifications) are planned.
 
 Tech Stack
 Category	Technology
@@ -462,7 +389,9 @@ Borrowings Service
     Atomic borrowing creation and inventory update
     PostgreSQL row-level locking during inventory updates
     Expected and actual return date validation
-    Automated tests for borrowing reads, creation, validation, and permissions
+    Return endpoint to record a return and restore one inventory unit (Task 7: in final review)
+    Prevention of duplicate returns and restriction of returns to the borrowing owner or staff
+    Automated tests for borrowing reads, creation, returns, validation, and permissions
 
 Books Permissions
 
@@ -494,23 +423,20 @@ Development Features
 
 Project Roadmap
 
-The project consists of 15 mandatory coding tasks. Optional tasks are excluded from the current scope.
-Task	Description	Status
+The original practice assignment contains 15 mandatory coding tasks. For this focused portfolio project, the development goal has been reduced to 8 selected tasks. The original task numbers are retained for traceability.
+Original Task	Description	Status
 1	Books Service CRUD	Implemented
 2	Books Permissions	Implemented
 3	Users Service CRUD & JWT	Implemented
 4	Borrowing List & Detail	Implemented
-5	Create Borrowing	In Progress — Final Verification
-6	Borrowing Filtering	Planned
-7	Return Borrowing	Planned
+5	Create Borrowing	Implemented
+7	Return Borrowing	In Progress — Final Review
 8	Telegram Borrowing Notifications	Planned
 9	Overdue Borrowing Notifications	Planned
-10	Payments List & Detail	Planned
-11	Stripe Payment Sessions	Planned
-12	Automated Stripe Sessions	Planned
-13	Payment Success & Cancel Endpoints	Planned
-14	Overdue Fine Payments	Planned
-15	Docker Compose Infrastructure	Planned
+
+Progress: 5 of 8 tasks implemented; Task 7 is undergoing final testing and documentation. Tasks 8 and 9 have not been implemented yet.
+
+Out of scope: Task 6 (Borrowing Filtering), Tasks 10–14 (Payments/Stripe), and Task 15 (Docker Compose). Optional assignment tasks are also excluded. The absence of Task 6 means full user-specific read/list filtering is not implemented; borrowing list/detail reads remain staff-only. Return-specific ownership checks are being implemented in Task 7.
 Getting Started
 Prerequisites
 
@@ -618,11 +544,12 @@ Successful response: 201 Created
 The ID is generated automatically by the database. Creating, updating, and deleting books requires staff authentication.
 Borrowings Service
 
-The Borrowings API supports authenticated borrowing creation and staff-only read operations.
+The Borrowings API supports authenticated borrowing creation and staff-only list/detail operations. Task 7 adds a return action for the borrowing owner or staff; that action is currently under final review.
 Method	Endpoint	Description	Access
 GET	/borrowings/	List all borrowings	Staff Only
 GET	/borrowings/{id}/	Retrieve borrowing details	Staff Only
 POST	/borrowings/	Create a borrowing	Authenticated
+POST	/borrowings/{id}/return/	Return a borrowing (Task 7 — final review)	Borrowing owner or staff
 Borrowing Model
 
 Each borrowing contains:
@@ -666,6 +593,28 @@ Borrowing Creation Rules
     If the transaction fails and the exception leaves the atomic block, its database changes are rolled back.
 
 Validation errors return 400 Bad Request, such as when a book has no inventory or the expected return date is invalid. Requests without valid authentication are rejected.
+Return a Borrowing (Task 7 — In Progress)
+
+Endpoint:
+POST /borrowings/1/return/
+
+This operation requires JWT authentication. No request body is required.
+
+Expected successful response: 200 OK
+{
+  "detail": "Borrowing returned successfully."
+}
+
+The return workflow is designed to:
+
+    Set actual_return_date to the current date.
+    Increase the associated book's inventory by exactly one.
+    Reject a second return of the same borrowing with 400 Bad Request.
+    Permit staff to return any borrowing and regular users to return only their own; attempts to access another user's borrowing return 404 Not Found.
+    Reject unauthenticated requests (normally 401 Unauthorized with the configured JWT authentication).
+    Use transaction.atomic() and row-level locking so that recording the return and updating inventory form one transaction, including protection against duplicate concurrent returns.
+
+Status: Implemented in the development branch; final tests, schema validation, and PR verification are pending. This endpoint should not be treated as released until the branch is merged.
 Date Validation
 
 The model defines validation rules requiring:
@@ -674,14 +623,16 @@ The model defines validation rules requiring:
     actual_return_date, if present, to be on or after borrow_date.
 
 Django's full_clean() invokes these model-level validation rules; save() does not call full_clean() automatically. Database constraints should also be checked through migrations and tests to ensure invalid dates are rejected at the database level.
-Permissions and Future Tasks
+Permissions and Scope
 
-For Tasks 4 and 5, staff users can list and retrieve all borrowing records. Any authenticated user can create a borrowing for themselves, but unauthenticated users cannot.
+    GET /borrowings/ and GET /borrowings/{id}/ are staff-only.
+    Any authenticated user can create a borrowing for themselves with POST /borrowings/.
+    The Task 7 return action allows a user to return their own borrowing or staff to return any borrowing; it is under final review.
+    Task 6 (list/detail filtering for regular users) has been intentionally excluded. Regular users do not receive general read access to their borrowing lists or details in the selected scope.
 
-Task 6 will add user-specific read access and filtering. Task 7 will implement returning borrowed books and restoring inventory.
 Borrowing Tests
 
-The borrowing test suite covers the read endpoints, model date validation, successful creation, inventory updates, out-of-stock rejection, invalid return dates, and authentication requirements.
+The borrowing test suite covers read endpoints, model date validation, successful creation, inventory updates, out-of-stock rejection, invalid return dates, and authentication requirements. Task 7 adds tests for successful returns, duplicate-return prevention, ownership restrictions, and unauthenticated requests. Final test results for Task 7 still need confirmation.
 python -m pytest borrowings/tests.py -v
 
 Borrowing endpoints are documented with drf-spectacular and available in Swagger UI.
@@ -739,7 +690,7 @@ Testing
 
 Automated tests use Pytest, pytest-django, Django REST Framework APIClient, and pytest-cov.
 
-Tests cover user registration, JWT authentication, profile operations, book CRUD, validation, permissions, borrowing read operations, and borrowing creation.
+Tests cover user registration, JWT authentication, profile operations, book CRUD, validation, permissions, and borrowing read/creation operations. Return-action tests are being finalized as part of Task 7.
 Run All Tests
 python -m pytest -v
 Run Individual App Tests
@@ -765,7 +716,7 @@ ALTER ROLE library_user CREATEDB;
 This permission should not be granted unnecessarily in production environments.
 Development Workflow
 
-The project follows a task-based Git workflow. Each mandatory coding task is implemented in a dedicated feature branch.
+The project follows a task-based Git workflow. Each selected task is implemented in a dedicated feature branch and Pull Request.
 
 Example:
 main
@@ -779,6 +730,8 @@ main
  +-- feature/borrowings-list-detail
  |
  +-- feature/borrowings-create
+ |
+ +-- feature/borrowings-return
 Git Workflow
 
     Create a branch for the task.
@@ -807,49 +760,40 @@ test: add book permission tests
 docs: document borrowing creation endpoint
 fix: prevent unauthorized book updates
 Planned Modules
-Borrowings Service — Next Steps
+Task 8 — Telegram Borrowing Notifications
 
-Future tasks will add:
+The next integration will send a Telegram message when a borrowing is created. Implementation will include:
 
-    Filtering active and completed borrowings
-    Restricting users to their own borrowing records
-    Administrator filtering by user
-    Returning books and increasing inventory after a valid return
+    Telegram bot configuration and API integration.
+    Secure storage of bot credentials in environment variables; .env.sample will document required keys without containing secrets.
+    Error handling and automated tests for notifications.
 
-Notifications Service
+Status: Planned; not yet available in the API.
+Task 9 — Scheduled Overdue Notifications
 
-Telegram integration will provide:
+The final selected task will detect overdue, unreturned borrowings and send reminders using Telegram. Implementation will include:
 
-    Notifications for newly created borrowings
-    Notifications for overdue borrowings
-    Scheduled overdue checks
-    Background task processing
+    A daily scheduled check for borrowings past expected_return_date with no actual_return_date.
+    Background job processing using Django Q or Celery, as chosen during implementation.
+    Integration with the Telegram notification logic from Task 8.
+    Tests for due-date conditions, scheduling logic, and duplicate-message handling as appropriate.
 
-Payments Service
+Status: Planned; background workers and any required supporting infrastructure are not configured yet. Task 15's full Docker Compose environment is outside the selected scope; only infrastructure essential to run the scheduled task will be added.
+Scope Exclusions
 
-Stripe integration will support:
+The current eight-task roadmap does not include:
 
-    Payment records
-    Stripe Checkout Sessions
-    Payment status tracking
-    Payment success and cancellation endpoints
-    Automatic payment creation for borrowings
-    Overdue fine calculation
+    Task 6: User-facing borrowing list/detail filtering.
+    Tasks 10–14: Payments, Stripe Checkout, payment status, or overdue fines.
+    Task 15: Full Docker Compose infrastructure.
 
-All Stripe development will use test mode without real transactions.
-Infrastructure
-
-Docker Compose will eventually manage the application's supporting services, including:
-
-    Django API
-    PostgreSQL
-    Redis
-    Background task workers and scheduler
-
+This is a deliberate reduction of the original assignment's scope. It prioritizes a complete borrow/return workflow, an external messaging integration, and scheduled backend jobs.
 Project Status
 
-This project is under active development. Tasks 1–4 have been implemented, and Task 5 is awaiting final test and coverage verification before its Pull Request is completed.
+This project is under active development with a revised goal of eight selected tasks from the original 15-task practice assignment.
 
-The goal is to complete all 15 mandatory tasks from the DRF Library Practice assignment while maintaining clean code, automated tests, API documentation, and a professional Git workflow.
+    Implemented: Tasks 1, 2, 3, 4, and 5 (books, permissions, users/JWT, borrowing reads, borrowing creation).
+    Under final review: Task 7 (return borrowing, restore inventory, return-specific ownership checks, and tests).
+    Planned: Task 8 (Telegram notifications) and Task 9 (scheduled overdue notifications).
 
-Optional tasks are not included in the current scope.
+The project is intended as a focused Python/Django REST Framework portfolio project, with PostgreSQL, JWT authentication, tests, OpenAPI documentation, and task-based Git history. Completing the eight selected tasks does not constitute completing all mandatory tasks of the original assignment.
