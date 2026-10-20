@@ -1,3 +1,6 @@
+import json
+from io import BytesIO
+from unittest.mock import patch
 from datetime import date, timedelta
 from django.utils import timezone
 from decimal import Decimal
@@ -9,9 +12,12 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
 from django.db import IntegrityError, transaction
+from django.test import override_settings
+
 
 from books.models import Book
 from borrowings.models import Borrowing
+from borrowings.telegram import send_telegram_message
 
 
 @pytest.fixture
@@ -311,3 +317,143 @@ def test_unauthenticated_user_cannot_return_borrowing(borrowing):
     assert response.status_code == 401
     assert borrowing.actual_return_date is None
     assert book.inventory == original_inventory
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+def test_send_telegram_message():
+    fake_response = BytesIO(
+        json.dumps({
+            "ok": True,
+            "result": {"message_id": 123},
+        }).encode("utf-8")
+    )
+
+    with patch(
+        "borrowings.telegram.urlopen",
+        return_value=fake_response,
+    ) as mock_urlopen:
+        result = send_telegram_message("New borrowing created!")
+    assert result["message_id"] == 123
+    mock_urlopen.assert_called_once()
+    request = mock_urlopen.call_args.args[0]
+
+    assert request.get_method() == "POST"
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["chat_id"] == "123456789"
+    assert payload["text"] == "New borrowing created!"
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="",
+    TELEGRAM_CHAT_ID="",
+)
+def test_send_telegram_message_without_configuration():
+    with patch("borrowings.telegram.urlopen") as mock_urlopen:
+        with pytest.raises(
+            ValueError,
+            match="Telegram configuration is missing."
+        ):
+            send_telegram_message("Test message")
+
+    mock_urlopen.assert_not_called()
+
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+@override_settings(
+    TELEGRAM_BOT_TOKEN="fake-test-token",
+    TELEGRAM_CHAT_ID="123456789",
+)
+def test_send_telegram_message_api_failure():
+    fake_response = BytesIO(
+        json.dumps({
+            "ok": False,
+            "description": "Bad Request",
+        }).encode("utf-8")
+    )
+    with patch(
+        "borrowings.telegram.urlopen",
+        return_value=fake_response,
+    ):
+        with pytest.raises(RuntimeError):
+            send_telegram_message("Test message")
+@pytest.mark.django_db
+def test_telegram_notification_after_borrowing_creation(
+    regular_client,
+    regular_user,
+    book,
+    django_capture_on_commit_callbacks,
+):
+    expected_return_date = timezone.localdate() + timedelta(days=7)
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": expected_return_date.isoformat(),
+    }
+
+    with patch(
+        "borrowings.serializers.send_telegram_message"
+    ) as mock_send:
+
+        with django_capture_on_commit_callbacks(
+            execute=True
+        ) as callbacks:
+
+            response = regular_client.post(
+                reverse("borrowing-list"),
+                data,
+                format="json",
+            )
+
+            assert response.status_code == 201
+
+            mock_send.assert_not_called()
+        assert len(callbacks) == 1
+        mock_send.assert_called_once()
+        message = mock_send.call_args.args[0]
+        assert book.title in message
+
+@pytest.mark.django_db
+def test_telegram_notification_not_sent_after_rollback(
+    regular_client,
+    book,
+    django_capture_on_commit_callbacks,
+):
+    original_inventory = book.inventory
+
+    data = {
+        "book": book.pk,
+        "expected_return_date": (
+            timezone.localdate() + timedelta(days=7)
+        ).isoformat(),
+    }
+
+    with patch(
+        "borrowings.serializers.send_telegram_message"
+    ) as mock_send:
+
+        with django_capture_on_commit_callbacks(
+            execute=True
+        ) as callbacks:
+
+            with pytest.raises(RuntimeError, match="Forced rollback"):
+                with transaction.atomic():
+                    response = regular_client.post(
+                        reverse("borrowing-list"),
+                        data,
+                        format="json",
+                    )
+
+                    assert response.status_code == 201
+
+                    raise RuntimeError("Forced rollback")
+
+        assert len(callbacks) == 0
+        mock_send.assert_not_called()
+
+    book.refresh_from_db()
+
+    assert book.inventory == original_inventory
+    assert not Borrowing.objects.filter(book=book).exists()

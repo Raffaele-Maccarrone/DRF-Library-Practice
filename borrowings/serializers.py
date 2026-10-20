@@ -4,6 +4,7 @@ from django.utils import timezone
 from books.models import Book
 from books.serializers import BookSerializer
 from borrowings.models import Borrowing
+from borrowings.telegram import send_telegram_message
 
 class BorrowingReadSerializer(serializers.ModelSerializer):
     book = BookSerializer(read_only=True)
@@ -69,5 +70,16 @@ class BorrowingCreateSerializer(serializers.ModelSerializer):
 
             book.inventory -= 1
             book.save(update_fields=["inventory"])
+            message = (
+                f"📚 New Borrowing!\n"
+                f"Book: {book.title}\n"
+                f"By user: {user.email}\n"
+                f"Borrowing date: {borrow_date}\n"
+                f"Expected return: {expected_return_date}\n"
+            )
+            transaction.on_commit(
+                lambda: send_telegram_message(message),
+                robust=True,
+            )
 
         return borrowing
