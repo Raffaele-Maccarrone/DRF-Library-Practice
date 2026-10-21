@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'drf_spectacular',
+    'django_q',
     'books',
     'users',
     'borrowings'
@@ -168,3 +169,11 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
 }
 
+Q_CLUSTER = {
+    "name": "library",
+    "workers": 2,
+    "timeout": 60,
+    "retry": 120,
+    "orm": "default",
+    "catch_up": False,
+}

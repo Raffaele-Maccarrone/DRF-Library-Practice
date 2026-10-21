@@ -4,17 +4,14 @@ from unittest.mock import patch
 from datetime import date, timedelta
 from django.utils import timezone
 from decimal import Decimal
-
+from borrowings.tasks import notify_overdue_borrowings
 import pytest
-
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
 from django.db import IntegrityError, transaction
 from django.test import override_settings
-
-
 from books.models import Book
 from borrowings.models import Borrowing
 from borrowings.telegram import send_telegram_message
@@ -457,3 +454,36 @@ def test_telegram_notification_not_sent_after_rollback(
 
     assert book.inventory == original_inventory
     assert not Borrowing.objects.filter(book=book).exists()
+
+@pytest.mark.django_db
+def test_notify_only_overdue_borrowings(borrowing):
+    today = timezone.localdate()
+
+    borrowing.borrow_date = today - timedelta(days=6)
+    borrowing.expected_return_date = today - timedelta(days=1)
+    borrowing.save(
+        update_fields=["borrow_date", "expected_return_date"]
+    )
+
+    Borrowing.objects.create(
+        book=borrowing.book,
+        user=borrowing.user,
+        borrow_date=today - timedelta(days=4),
+        expected_return_date=today + timedelta(days=2),
+    )
+
+    Borrowing.objects.create(
+        book=borrowing.book,
+        user=borrowing.user,
+        borrow_date=today - timedelta(days=8),
+        expected_return_date=today - timedelta(days=3),
+        actual_return_date=today - timedelta(days=1),
+    )
+
+    with patch("borrowings.tasks.send_telegram_message") as mock_send:
+        notify_overdue_borrowings()
+
+    mock_send.assert_called_once()
+    message = mock_send.call_args.args[0]
+    assert borrowing.book.title in message
+
