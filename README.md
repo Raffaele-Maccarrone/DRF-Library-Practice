@@ -6,7 +6,7 @@ This project is based on a technical assessment practice assignment. Its purpose
 
 The original assignment contains 15 mandatory coding tasks. This portfolio implementation focuses on **8 selected tasks** and retains their original numbering. No frontend is required; the API can be explored through Swagger UI.
 
-> **Project Status:** Tasks 1–5 and 7 implemented; Task 8 in final verification; Task 9 planned.
+> **Project Status:** All 8 selected tasks (1–5 and 7–9) are implemented. The overdue notification job was successfully executed through Django Q2; recurring execution requires a running Q Cluster.
 
 ---
 
@@ -19,6 +19,7 @@ The original assignment contains 15 mandatory coding tasks. This portfolio imple
 | REST API | Django REST Framework |
 | Database | PostgreSQL |
 | Notifications | Telegram Bot API (Python `urllib`) |
+| Background Scheduling | Django Q2 (PostgreSQL ORM broker) |
 | Authentication | Simple JWT |
 | API Documentation | drf-spectacular (OpenAPI / Swagger UI) |
 | Testing | Pytest, pytest-django |
@@ -71,7 +72,18 @@ The original assignment contains 15 mandatory coding tasks. This portfolio imple
 - Notification messages containing book, user, and borrowing dates
 - Notifications registered with `transaction.on_commit()` to avoid announcing rolled-back transactions
 - Automated API tests using mocks instead of real Telegram requests
-- Manual message delivery to Telegram verified; end-to-end automatic delivery should also be checked before merging
+- Manual Telegram delivery verified; automated message delivery is covered by mocked tests
+
+### Scheduled Overdue Notifications (Django Q2)
+
+- Daily background check for borrowings whose `expected_return_date` is before the current date and whose `actual_return_date` is `NULL`
+- One Telegram message per matching overdue borrowing when the task runs
+- Related book and user records loaded efficiently with `select_related()`
+- Django Q2 with the PostgreSQL ORM broker; no Redis server required
+- Reusable management command (`setup_overdue_schedule`) to register the daily schedule
+- Daily schedule set for **9:00 AM** in the Django application's configured time zone
+- Automated test ensures current, upcoming, and already-returned borrowings are not incorrectly reported as overdue
+- Background task successfully executed using a Django Q2 worker; a live scheduled 9:00 AM run has not been separately verified
 
 ### Books Permissions
 
@@ -90,6 +102,7 @@ These rules are implemented through `IsAdminOrReadOnly`. With the configured JWT
 ### Development Features
 
 - PostgreSQL integration
+- Database-backed background task scheduling with Django Q2
 - Environment variable configuration
 - Automated testing and coverage reporting
 - OpenAPI documentation and Swagger UI
@@ -109,8 +122,8 @@ The scope includes **8 selected tasks** from the original practice assignment. O
 | 4 | Borrowing List & Detail | Implemented |
 | 5 | Create Borrowing | Implemented |
 | 7 | Return Borrowing | Implemented |
-| 8 | Telegram Borrowing Notifications | In final verification |
-| 9 | Scheduled Overdue Notifications | Planned |
+| 8 | Telegram Borrowing Notifications | Implemented |
+| 9 | Scheduled Overdue Notifications | Implemented |
 
 **Out of scope:** Task 6 (borrowing list/detail filtering), Tasks 10–14 (payments and Stripe), Task 15 (full Docker Compose infrastructure), and the original optional tasks.
 
@@ -124,11 +137,12 @@ Because Task 6 is excluded, borrowing **list and detail** endpoints remain staff
 
 Make sure the following are installed:
 
-- Python and pip
+- Python and pip (the project has been tested with Python 3.14)
 - PostgreSQL
 - Git
+- Optional for running the background worker on Windows: WSL2 with Ubuntu
 
-The commands below use Windows PowerShell.
+The primary application setup and automated testing commands below use Windows PowerShell. The Django Q2 worker can be run in Linux/WSL2.
 
 ### 1. Clone the repository
 
@@ -209,6 +223,73 @@ python manage.py runserver
 5. Restart the Django process after updating environment variables.
 
 The Telegram integration requires valid credentials for live delivery. Automated tests mock HTTP requests and do not send real messages.
+
+### 10. Register the daily overdue notification schedule
+
+After applying migrations, run:
+
+```powershell
+python manage.py setup_overdue_schedule
+```
+
+This command creates or updates the `Daily Overdue Notifications` schedule in the database. The schedule calls `borrowings.tasks.notify_overdue_borrowings` daily at **09:00** in the Django application's configured time zone, with unlimited repetitions.
+
+Re-running the setup command updates the existing schedule **and resets its next execution to 9:00 AM the following day**. Run it during initial setup or when intentionally reconfiguring the schedule, not on every application startup.
+
+**Registering a schedule does not execute it.** A Django Q2 cluster must remain running to process scheduled jobs. The cluster uses the configured PostgreSQL database as its ORM broker.
+
+### 11. Run the background worker (Linux / WSL2)
+
+On Linux, activate the project environment, ensure the database and Telegram settings are available, and start the cluster:
+
+```bash
+python manage.py qcluster
+```
+
+Keep this process running while scheduled notifications are needed. Stop it with `Ctrl + C`.
+
+**Windows development using WSL2:** The Django server and tests can stay on Windows; the Q Cluster runs in Ubuntu (WSL2), because Django Q2's multiprocessing-based worker is not suited to native Windows execution.
+
+1. Open Ubuntu with `wsl -d Ubuntu`, then enter the project directory (Windows drives are mounted under `/mnt/c/`).
+2. Install the Linux Python prerequisites, if needed:
+
+   ```bash
+   sudo apt update
+   sudo apt install -y python3-venv python3-pip python3-dev libpq-dev build-essential
+   ```
+
+3. Create and activate a **separate Linux virtual environment** (do not reuse a Windows `venv`):
+
+   ```bash
+   python3 -m venv ~/.venvs/drf-library
+   source ~/.venvs/drf-library/bin/activate
+   python -m pip install -r requirements.txt
+   ```
+
+4. If PostgreSQL runs on Windows and WSL2 uses its default NAT networking, set `POSTGRES_HOST` to the Windows host address for this terminal session:
+
+   ```bash
+   export POSTGRES_HOST=$(ip route show default | awk '{print $3; exit}')
+   ```
+
+   This requires `config/settings.py` to read `POSTGRES_HOST` from the environment. The address may change after restarting WSL2. Other WSL2 networking modes may require a different host address.
+
+5. Confirm database access, and then start the worker:
+
+   ```bash
+   python manage.py shell -c "from django.db import connection; connection.ensure_connection(); print('PostgreSQL connected')"
+   python manage.py qcluster
+   ```
+
+If the WSL2 connection times out, inspect the Windows firewall and PostgreSQL `listen_addresses`. If PostgreSQL reports **no `pg_hba.conf` entry**, add a narrowly scoped `host` rule for the WSL2 IP, the `library_db` database, and the `library_user` role (for example, `host library_db library_user <WSL_IP>/32 scram-sha-256`), then reload PostgreSQL's configuration. Avoid opening database access to all network addresses.
+
+When finished, first stop `qcluster` with `Ctrl + C`. In Windows PowerShell, shut down only Ubuntu with:
+
+```powershell
+wsl --terminate Ubuntu
+```
+
+Use `wsl --list --verbose` to confirm its status is `Stopped`. Stopping WSL2 also stops the background worker, so no scheduled notifications will run while Ubuntu is off.
 
 ---
 
@@ -339,6 +420,29 @@ After a successful borrowing transaction is committed, the application attempts 
 
 Notifications are registered with `transaction.on_commit(..., robust=True)` so rolled-back borrowings do not produce messages. Telegram failures do not roll back an already committed borrowing; synchronous notifications are not guaranteed to be delivered if the process fails after commit.
 
+### Telegram Notifications for Overdue Borrowings
+
+The background function `borrowings.tasks.notify_overdue_borrowings` selects borrowings satisfying both conditions:
+
+- `expected_return_date < timezone.localdate()`
+- `actual_return_date IS NULL`
+
+For each matching borrowing, it sends a Telegram message containing the book title, borrower email, and expected return date. The scheduled job checks daily; an overdue borrowing may produce a reminder on each day it remains unreturned. This is a **background job**, not an additional HTTP API endpoint.
+
+The Django Q2 setup command registers the recurring schedule, while a running Q Cluster dispatches it. See [Getting Started](#10-register-the-daily-overdue-notification-schedule) for setup instructions.
+
+For a **manual live run**, keep `qcluster` running in one terminal, open another terminal connected to the same database, and run:
+
+```python
+from django_q.tasks import async_task, fetch
+
+task_id = async_task("borrowings.tasks.notify_overdue_borrowings")
+task = fetch(task_id, wait=5000)
+print(task.success, task.result) if task is not None else print("Pending")
+```
+
+Execute this from `python manage.py shell`. **This can send real Telegram notifications** when overdue borrowings exist; do not enqueue the task repeatedly just to check whether it finished. A successful manual run has been verified; an unattended daily 9:00 AM execution has not been separately observed.
+
 ---
 
 ## Authentication
@@ -402,6 +506,9 @@ Automated tests use Pytest, pytest-django, Django REST Framework's `APIClient`, 
 Tests cover user registration and authentication, book CRUD and permissions, borrowing reads, borrowing creation, date validation, and inventory updates.
 Return-specific tests also cover inventory restoration, duplicate-return prevention, ownership checks, and unauthenticated requests.
 Telegram tests mock HTTP requests and cover message payloads, missing credentials, simulated API failures, and transaction commit/rollback behavior.
+The overdue notification test uses mocks and covers overdue, not-yet-due, and already-returned borrowings without making real Telegram requests.
+
+**Latest verified test run (Windows, Python 3.14.5 / Django 6.1.2): 52 tests passed, 98% reported total coverage.** The reported total includes tests and migrations; it is not a production-code-only coverage figure. The scheduling management command was not exercised by the test suite (0% for that file), although the command was used to configure the schedule during manual development.
 
 ### Run All Tests
 
@@ -455,6 +562,7 @@ main
  +-- feature/borrowings-create
  +-- feature/borrowings-return
  +-- feature/telegram-notifications
+ +-- feature/overdue-notifications
 ```
 
 ### Git Workflow
@@ -482,18 +590,18 @@ The project follows Conventional Commits.
 
 ---
 
-## Remaining Scope
+## Scope and Limitations
 
-### Scheduled Overdue Notifications — Task 9
-
-- Find borrowings that are overdue and have not been returned
-- Send Telegram notifications about overdue books
-- Run checks automatically using a scheduled background task
-
-Full Stripe payments and Docker Compose infrastructure are outside the selected eight-task scope.
+- All eight selected tasks are implemented; original task numbering is retained.
+- Task 6 (user-filtered borrowing list/detail), Stripe payments, and full Docker Compose infrastructure are intentionally out of scope.
+- The overdue job may send repeated daily reminders until a borrowing is returned; reminder deduplication and retry policies are not part of this implementation.
+- The job runs only while the Django Q2 cluster is active. A successful manual queue execution was verified, but the unattended scheduled run has not been independently observed.
+- Borrowing-creation Telegram notifications are dispatched after database commit, but delivery is best-effort and does not have a persistent retry queue.
 
 ---
 
 ## Project Status
 
-This is a portfolio-oriented Django REST Framework project based on **8 selected tasks** from the original assignment. It prioritizes clean API design, PostgreSQL consistency, practical integrations, automated tests, and clear documentation. The remaining planned functionality is described above.
+This is a portfolio-oriented Django REST Framework project implementing **8 selected tasks** from the original assignment. It demonstrates JWT authentication, permissions, transactional inventory management, borrowing returns, Telegram integration, and database-backed scheduled notifications.
+
+**Verification:** 52 automated tests passed on Windows, with 98% reported overall coverage (including tests and migrations). The Django Q2 background function also completed successfully through a running Linux/WSL2 cluster. Daily execution requires keeping that cluster available.
